@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Proactive Safety Video Monitor</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f4f4f4;
+            color: #333;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+        h1 {
+            color: #0056b3;
+        }
+        .video-container {
+            border: 2px solid #ddd;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            margin-top: 20px;
+            background-color: #fff;
+            padding: 10px;
+            border-radius: 8px;
+        }
+        img {
+            display: block;
+            max-width: 100%;
+            height: auto;
+            border-radius: 4px;
+        }
+        .controls {
+            margin-top: 20px;
+            display: flex;
+            gap: 10px;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            border: none;
+            border-radius: 5px;
+            color: white;
+            background-color: #007bff;
+            transition: background-color 0.3s ease;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button.stop {
+            background-color: #dc3545;
+        }
+        button.stop:hover {
+            background-color: #c82333;
+        }
+        .status-message {
+            margin-top: 15px;
+            font-size: 1.1em;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <h1>Proactive Safety Video Monitor</h1>
+
+    <div class="video-container">
+        <img id="videoFeed" src="{{ url_for('video_feed') }}" alt="Live Safety Feed">
+    </div>
+
+    <div class="controls">
+        <button onclick="startStream()">Start Stream</button>
+        <button class="stop" onclick="stopStream()">Stop Stream</button>
+    </div>
+
+    <div id="status" class="status-message"></div>
+
+    <script>
+        const videoFeed = document.getElementById('videoFeed');
+        const statusDiv = document.getElementById('status');
+        let isStreaming = false; // To track stream state client-side
+
+        // Function to check if the image has successfully loaded, indicating stream start
+        videoFeed.onload = () => {
+            if (!isStreaming) {
+                statusDiv.textContent = 'Stream started successfully!';
+                statusDiv.style.color = 'green';
+                isStreaming = true;
+            }
+        };
+
+        // Function for handling stream errors
+        videoFeed.onerror = () => {
+            statusDiv.textContent = 'Error loading stream. It might not be active or there\'s a connection issue.';
+            statusDiv.style.color = 'red';
+            isStreaming = false;
+        };
+
+        function startStream() {
+            // Point the image source to the video feed URL. This will trigger the stream.
+            videoFeed.src = "{{ url_for('video_feed') }}";
+            statusDiv.textContent = 'Attempting to start stream...';
+            statusDiv.style.color = '#666';
+        }
+
+        function stopStream() {
+            // Send an AJAX request to the /stop_video_feed endpoint
+            fetch('/stop_video_feed')
+                .then(response => response.json())
+                .then(data => {
+                    statusDiv.textContent = data.status;
+                    statusDiv.style.color = 'blue';
+                    // After stopping, clear the video feed
+                    videoFeed.src = ""; // This will stop the browser from trying to load more frames
+                    isStreaming = false;
+                })
+                .catch(error => {
+                    statusDiv.textContent = 'Error stopping stream: ' + error;
+                    statusDiv.style.color = 'red';
+                });
+        }
+    </script>
+</body>
+</html>

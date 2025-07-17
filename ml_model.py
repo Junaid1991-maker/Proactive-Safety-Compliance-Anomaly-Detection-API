@@ -1,59 +1,76 @@
 # ml_model.py
+# Located in: E:/Junaid New/Disrupt Labs/My practice Projects/Proactive Safety Compliance & Anomaly Detection API
+
 import cv2
 import numpy as np
-import random
 import os
+import time
+import random # NEW: Import the random module
 
 class SafetyComplianceModel:
     def __init__(self):
-        print("Dummy SafetyComplianceModel initialized.")
-        self.categories = ["PPE_Violation", "Unsafe_Posture", "Restricted_Area_Breach", "Clear_Pathway_Obstruction"]
+        print("Dummy SafetyComplianceModel initialized.") # Can change to logging.info if you want
 
-    def predict(self, image_path: str):
-        try:
-            image = cv2.imread(image_path)
-            if image is None:
-                raise ValueError(f"Could not load image from {image_path}. Check file path and integrity.")
+    def analyze_image(self, image_np_array):
+        if not isinstance(image_np_array, np.ndarray):
+            print("Error: Input to analyze_image must be a NumPy array.")
+            return {"error": "Input must be a NumPy array (image frame)."}
 
-            h, w, _ = image.shape
-            num_detections = random.randint(0, 3)
-            detections = []
+        # Simulate analysis time for a realistic feel
+        time.sleep(0.1) # Simulate a 100ms processing time
 
-            if num_detections > 0:
-                for _ in range(num_detections):
-                    category = random.choice(self.categories)
-                    confidence = round(random.uniform(0.6, 0.95), 2)
-                    x1 = random.randint(0, w - 50)
-                    y1 = random.randint(0, h - 50)
-                    x2 = random.randint(x1 + 30, w)
-                    y2 = random.randint(y1 + 30, h)
-                    bbox = [x1, y1, x2, y2]
+        height, width, _ = image_np_array.shape
+        detections = []
+        compliance_status = "Compliant"
 
-                    detections.append({
-                        "category": category,
-                        "confidence": confidence,
-                        "bbox": bbox,
-                        "description": f"Detected {category} with confidence {confidence} in area {bbox}"
-                    })
+        # NEW/MODIFIED: More advanced dummy detection logic
+        # Simulate a chance of non-compliance and varying detections
+        if random.random() < 0.3: # 30% chance of detecting a non-compliance/anomaly
+            compliance_status = "Non-Compliant"
+            
+            # Randomly pick a "violation" type
+            violation_type = random.choice([
+                "No Hard Hat",
+                "No Safety Vest",
+                "Unsafe Area Entry",
+                "Equipment Misplaced",
+                "Trip Hazard Detected"
+            ])
+            
+            # Generate random bounding box coordinates (ensure they are within image bounds)
+            # Make sure bbox is not outside image dimensions
+            x_min = random.randint(0, width - 150)
+            y_min = random.randint(0, height - 150)
+            x_max = random.randint(x_min + 50, min(x_min + 300, width))
+            y_max = random.randint(y_min + 50, min(y_min + 300, height))
 
-            print(f"Simulated {len(detections)} detections for {image_path}")
-            return {"detections": detections, "image_dimensions": {"width": w, "height": h}}
+            detections.append({
+                "label": violation_type,
+                "confidence": round(random.uniform(0.7, 0.95), 2), # Random confidence score
+                "bbox": [x_min, y_min, x_max, y_max]
+            })
 
-        except Exception as e:
-            print(f"Error during dummy prediction for {image_path}: {e}")
-            return {"error": str(e), "detections": []}
+        else: # 70% chance of being compliant
+            compliance_status = "Compliant"
+            detections.append({
+                "label": "All Clear - Compliant",
+                "confidence": 0.99,
+                "bbox": []
+            })
 
-if __name__ == "__main__":
-    model = SafetyComplianceModel()
-    dummy_img_path = "data/raw/test_dummy_image_for_ml.jpg"
-    if not os.path.exists("data/raw"):
-        os.makedirs("data/raw")
-    dummy_img = np.zeros((480, 640, 3), dtype=np.uint8)
-    cv2.imwrite(dummy_img_path, dummy_img)
+        results = {
+            "compliance_status": compliance_status,
+            "detections": detections,
+            "timestamp": time.time(),
+            "image_dimensions": {"width": width, "height": height}
+        }
+        print(f"Dummy model processed frame. Status: {compliance_status}") # Can change to logging.info
+        return results
 
-    print(f"Testing dummy model with {dummy_img_path}")
-    results = model.predict(dummy_img_path)
-    print("\nDummy Model Prediction Results:")
-    print(results)
-    os.remove(dummy_img_path)
-    print(f"Cleaned up {dummy_img_path}")
+# Optional: Keep this function if your original /analyze_safety endpoint
+# needs to load images from file paths before passing to analyze_image.
+def load_image_from_file(image_path):
+    if not os.path.exists(image_path):
+        print(f"Error: Image file not found at {image_path}") # Can change to logging.error
+        return None
+    return cv2.imread(image_path)
