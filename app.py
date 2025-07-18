@@ -39,7 +39,8 @@ last_compliance_status = "N/A" # To hold the last detected status for skipped fr
 current_metrics = {
     "fps": 0.0,
     "inference_time_ms": 0.0,
-    "last_analysis_status": "N/A"
+    "last_analysis_status": "N/A",
+    "is_anomaly": False # NEW: Flag for anomaly detection
 }
 
 
@@ -76,6 +77,9 @@ def generate_frames():
         # Make a copy of the frame to draw on, so the original remains untouched if needed
         processed_frame = frame.copy()
 
+        # Initialize is_anomaly flag for this frame before processing
+        current_metrics["is_anomaly"] = False 
+
         # Apply frame skipping logic
         if frame_count % skip_frames_interval == 0:
             # Measure inference time
@@ -90,6 +94,11 @@ def generate_frames():
             last_compliance_status = analysis_results.get('compliance_status', 'N/A')
             current_metrics["last_analysis_status"] = last_compliance_status
 
+            # --- NEW: Check if current status indicates an anomaly for alerting ---
+            if "Non-Compliant" in last_compliance_status:
+                current_metrics["is_anomaly"] = True
+            # --- END NEW ---
+
             # Draw detections on the processed_frame
             if "detections" in analysis_results and analysis_results["detections"]:
                 for det in analysis_results["detections"]:
@@ -101,12 +110,10 @@ def generate_frames():
                         color = (0, 255, 0) # Default Green for general detections (like 'person' or detected PPE)
                         text_color = (0, 255, 0)
 
-                        # --- UPDATED DRAWING LOGIC FOR ANOMALIES (Task D) ---
                         # Check if the label string contains "Non-Compliant" for red color
                         if "Non-Compliant" in det["label"]:
                             color = (0, 0, 255) # Red for anomaly
                             text_color = (255, 255, 255) # White text on red background for visibility
-                        # --- END UPDATED DRAWING LOGIC ---
                         
                         cv2.rectangle(processed_frame, (x1, y1), (x2, y2), color, 2)
                         cv2.putText(processed_frame, det["label"], (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, text_color, 2)
@@ -154,6 +161,7 @@ def generate_frames():
     current_metrics["fps"] = 0.0 # Reset metrics when stream ends
     current_metrics["inference_time_ms"] = 0.0
     current_metrics["last_analysis_status"] = "N/A"
+    current_metrics["is_anomaly"] = False # Reset anomaly flag on stream end
 
 
 # Define all your Flask routes here, after the 'app' object is created.

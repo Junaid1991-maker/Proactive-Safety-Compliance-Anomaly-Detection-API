@@ -3,181 +3,123 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proactive Safety Monitor</title>
+    <title>Safety Compliance Monitor</title>
     <style>
-        body {
-            font-family: Arial, sans-serif;
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f4f4; color: #333; }
+        .container { max-width: 900px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        h1, h2 { text-align: center; color: #0056b3; }
+        img { max-width: 100%; height: auto; display: block; margin: 20px auto; border: 1px solid #ddd; border-radius: 4px; }
+        .dashboard-metrics {
             display: flex;
-            flex-direction: column;
-            align-items: center;
-            background-color: #f0f2f5;
-            margin: 20px;
-            color: #333;
-        }
-        h1 {
-            color: #2c3e50;
-            margin-bottom: 30px;
-        }
-        .video-container {
-            border: 2px solid #3498db;
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-            margin-bottom: 20px;
-            width: 640px; /* Assuming webcam resolution */
-            height: 480px; /* Assuming webcam resolution */
-            background-color: #000;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
-        .video-container img {
-            display: block;
-            width: 100%;
-            height: 100%;
-            object-fit: contain; /* Ensures entire image is visible */
-        }
-        .controls {
-            margin-bottom: 20px;
-        }
-        .controls button {
-            padding: 12px 25px;
-            font-size: 16px;
-            margin: 0 10px;
-            border: none;
+            justify-content: space-around;
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #e9ecef;
             border-radius: 5px;
-            cursor: pointer;
-            transition: background-color 0.3s ease;
         }
-        #startButton {
-            background-color: #28a745;
-            color: white;
-        }
-        #startButton:hover {
-            background-color: #218838;
-        }
-        #stopButton {
-            background-color: #dc3545;
-            color: white;
-        }
-        #stopButton:hover {
-            background-color: #c82333;
-        }
-        .metrics-dashboard {
-            background-color: #fff;
-            border: 1px solid #ddd;
-            border-radius: 8px;
-            padding: 20px;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
-            width: 600px;
-            text-align: left;
-        }
-        .metrics-dashboard h2 {
-            color: #34495e;
-            margin-top: 0;
-            border-bottom: 1px solid #eee;
-            padding-bottom: 10px;
-            margin-bottom: 15px;
-        }
-        .metrics-dashboard p {
-            margin: 8px 0;
+        .metric-item {
+            text-align: center;
             font-size: 1.1em;
-        }
-        .metrics-dashboard strong {
-            color: #2c3e50;
-        }
-        .metrics-dashboard .metric-value {
             font-weight: bold;
-            color: #e67e22; /* A distinguishing color for values */
+            color: #495057;
+        }
+        #compliance-status {
+            font-size: 1.3em;
+            color: green; /* Default color for compliant */
+            text-align: center;
+            margin-top: 15px;
+            padding: 8px;
+            border-radius: 5px;
+            background-color: #d4edda; /* Light green background */
         }
     </style>
 </head>
 <body>
-    <h1>Proactive Safety Compliance Monitor</h1>
+    <div class="container">
+        <h1>Live Safety Compliance Monitor</h1>
+        
+        <img id="video-feed" src="{{ url_for('video_feed') }}" alt="Live Camera Feed">
 
-    <div class="video-container">
-        <img id="videoStream" src="" alt="Video Stream">
-    </div>
+        <div class="dashboard-metrics">
+            <div class="metric-item">
+                FPS: <span id="fps">0.0</span>
+            </div>
+            <div class="metric-item">
+                Inference Time (ms): <span id="inference-time">0.0</span>
+            </div>
+        </div>
+        <div id="compliance-status">Loading Status...</div>
 
-    <div class="controls">
-        <button id="startButton">Start Stream</button>
-        <button id="stopButton">Stop Stream</button>
-    </div>
-
-    <div class="metrics-dashboard">
-        <h2>Real-time ML Metrics</h2>
-        <p>Last Analysis Status: <span class="metric-value" id="lastAnalysisStatus">N/A</span></p>
-        <p>Processed FPS: <span class="metric-value" id="processedFPS">0.0</span></p>
-        <p>Inference Time: <span class="metric-value" id="inferenceTime">0.0</span> ms</p>
+        <p style="text-align: center; margin-top: 20px;">
+            <button onclick="stopStream()">Stop Monitoring</button>
+            <button onclick="startStream()">Start Monitoring</button>
+        </p>
     </div>
 
     <script>
-        const videoStream = document.getElementById('videoStream');
-        const startButton = document.getElementById('startButton');
-        const stopButton = document.getElementById('stopButton');
-        const lastAnalysisStatusSpan = document.getElementById('lastAnalysisStatus');
-        const processedFPSSpan = document.getElementById('processedFPS');
-        const inferenceTimeSpan = document.getElementById('inferenceTime');
+        // This variable is outside the function but within the script tag
+        // It helps prevent continuous alerts for the same ongoing anomaly.
+        let lastAnomalyState = false; 
 
-        let metricsIntervalId = null; // To store the interval for fetching metrics
+        function updateMetrics() {
+            fetch('/metrics')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('fps').innerText = data.fps;
+                    document.getElementById('inference-time').innerText = data.inference_time_ms;
+                    document.getElementById('compliance-status').innerText = data.last_analysis_status;
 
-        // Function to fetch and update metrics
-        async function fetchMetrics() {
-            try {
-                const response = await fetch('/metrics');
-                const data = await response.json();
-                lastAnalysisStatusSpan.textContent = data.last_analysis_status;
-                processedFPSSpan.textContent = data.fps.toFixed(1); // Format to 1 decimal place
-                inferenceTimeSpan.textContent = data.inference_time_ms.toFixed(2); // Format to 2 decimal places
-            } catch (error) {
-                console.error('Error fetching metrics:', error);
-                lastAnalysisStatusSpan.textContent = 'Error';
-                processedFPSSpan.textContent = 'Error';
-                inferenceTimeSpan.textContent = 'Error';
-            }
+                    // Dynamically change compliance status background color
+                    const complianceStatusElement = document.getElementById('compliance-status');
+                    if (data.last_analysis_status.includes("Non-Compliant")) {
+                        complianceStatusElement.style.backgroundColor = '#f8d7da'; // Light red
+                        complianceStatusElement.style.color = '#721c24'; // Dark red text
+                    } else {
+                        complianceStatusElement.style.backgroundColor = '#d4edda'; // Light green
+                        complianceStatusElement.style.color = 'green'; // Green text
+                    }
+
+                    // --- Anomaly Alert Logic ---
+                    // Only show alert if it's an anomaly AND the state just changed from non-anomaly to anomaly
+                    if (data.is_anomaly && !lastAnomalyState) {
+                        alert('🚨 SAFETY ANOMALY DETECTED! 🚨\n\nStatus: ' + data.last_analysis_status);
+                        console.warn('SAFETY ANOMALY DETECTED:', data.last_analysis_status); // Log to browser console as well
+                    }
+                    lastAnomalyState = data.is_anomaly; // Update the last state for the next check
+                    // --- End Anomaly Alert Logic ---
+                })
+                .catch(error => console.error('Error fetching metrics:', error));
         }
 
-        // Event listener for Start Stream button
-        startButton.addEventListener('click', async () => {
-            videoStream.src = "{{ url_for('video_feed') }}";
-            try {
-                const response = await fetch('/video_feed'); // Send request to start stream
-                const data = await response.json();
-                console.log(data.status);
-                // Start fetching metrics periodically only when stream is active
-                if (!metricsIntervalId) {
-                    metricsIntervalId = setInterval(fetchMetrics, 1000); // Fetch every 1 second
-                    fetchMetrics(); // Initial fetch
-                }
-            } catch (error) {
-                console.error('Error starting stream:', error);
-            }
+        // Start polling for metrics every 1 second (1000 milliseconds)
+        let metricsInterval = setInterval(updateMetrics, 1000);
+
+        function stopStream() {
+            fetch('/stop_video_feed')
+                .then(response => response.json())
+                .then(data => {
+                    console.log(data.status);
+                    document.getElementById('video-feed').src = ""; // Clear video feed by setting src to empty
+                    clearInterval(metricsInterval); // Stop polling for metrics
+                    // Update dashboard to reflect monitoring stopped state
+                    document.getElementById('compliance-status').innerText = "Monitoring Stopped";
+                    document.getElementById('compliance-status').style.backgroundColor = '#e2e3e5'; // Gray background
+                    document.getElementById('compliance-status').style.color = '#333'; // Dark text
+                })
+                .catch(error => console.error('Error stopping stream:', error));
+        }
+
+        function startStream() {
+            // The simplest way to restart the video feed and metrics polling
+            // is to reload the entire page.
+            location.reload(); 
+        }
+
+        // Optional: Attempt to stop the stream if the user navigates away or closes the tab.
+        // This is a best effort and might not always work perfectly.
+        window.addEventListener('beforeunload', function() {
+            stopStream();
         });
-
-        // Event listener for Stop Stream button
-        stopButton.addEventListener('click', async () => {
-            videoStream.src = ""; // Clear the video stream
-            try {
-                const response = await fetch('/stop_video_feed'); // Send request to stop stream
-                const data = await response.json();
-                console.log(data.status);
-                // Stop fetching metrics
-                if (metricsIntervalId) {
-                    clearInterval(metricsIntervalId);
-                    metricsIntervalId = null;
-                }
-                // Reset displayed metrics
-                lastAnalysisStatusSpan.textContent = 'N/A';
-                processedFPSSpan.textContent = '0.0';
-                inferenceTimeSpan.textContent = '0.0';
-
-            } catch (error) {
-                console.error('Error stopping stream:', error);
-            }
-        });
-
-        // Initial state for video stream
-        videoStream.src = "";
     </script>
 </body>
 </html>
