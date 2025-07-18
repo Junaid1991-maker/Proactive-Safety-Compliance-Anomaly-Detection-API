@@ -13,12 +13,13 @@ from ml_model import SafetyComplianceModel
 import logging
 
 # Configure logging
-# Changed to DEBUG so you can see frame processing info if desired, otherwise INFO is fine
+# Set to INFO for normal operation. Change to DEBUG if you want to see per-frame processing logs.
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Load environment variables from .env file (like PORT)
 load_dotenv()
 
+# Initialize your Flask app instance FIRST
 app = Flask(__name__)
 
 # Configure the upload folder for images sent to the API
@@ -26,7 +27,7 @@ app.config['UPLOAD_FOLDER'] = 'uploads'
 # Ensure the upload directory exists
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
-# Initialize your ML model instance globally.
+# Initialize your ML model instance globally AFTER the app is defined.
 ml_model = SafetyComplianceModel()
 logging.info("Flask app initialized and ML model loaded.")
 
@@ -34,10 +35,17 @@ logging.info("Flask app initialized and ML model loaded.")
 streaming_active = False
 camera_feed = None # To hold the cv2.VideoCapture object
 last_compliance_status = "N/A" # To hold the last detected status for skipped frames
+# Global dictionary to store current metrics for the dashboard
+current_metrics = {
+    "fps": 0.0,
+    "inference_time_ms": 0.0,
+    "last_analysis_status": "N/A"
+}
 
-# Generator function for video streaming
+
+# Generator function for video streaming (must be defined before routes that use it, like /video_feed)
 def generate_frames():
-    global streaming_active, camera_feed, last_compliance_status # Access global status
+    global streaming_active, camera_feed, last_compliance_status, current_metrics # Access global metrics
     camera_feed = cv2.VideoCapture(0)
 
     if not camera_feed.isOpened():
@@ -50,11 +58,14 @@ def generate_frames():
 
     logging.info("Webcam successfully opened for streaming.")
 
-    # NEW: Frame skipping variables
     frame_count = 0
     # Adjust this value: 1 means process every frame, 2 means process every 2nd frame, etc.
     # Start with 3 or 4 and increase if needed for performance.
     skip_frames_interval = 3 # Process ML on every 3rd frame
+    
+    # Variables for FPS calculation
+    start_time = time.time()
+    processed_frame_count = 0 # Count frames actually sent for ML processing
 
     while streaming_active:
         ret, frame = camera_feed.read()
@@ -67,11 +78,17 @@ def generate_frames():
 
         # Apply frame skipping logic
         if frame_count % skip_frames_interval == 0:
-            # Only analyze the frame if it's time to process
+            # Measure inference time
+            inference_start_time = time.time()
             analysis_results = ml_model.analyze_image(frame) # Pass original frame for analysis
+            inference_end_time = time.time()
             
-            # Update global status for use in skipped frames
+            # Update metrics
+            current_metrics["inference_time_ms"] = round((inference_end_time - inference_start_time) * 1000, 2)
+            processed_frame_count += 1
+
             last_compliance_status = analysis_results.get('compliance_status', 'N/A')
+            current_metrics["last_analysis_status"] = last_compliance_status
 
             # Draw detections on the processed_frame
             if "detections" in analysis_results and analysis_results["detections"]:
@@ -79,19 +96,45 @@ def generate_frames():
                     if "bbox" in det and len(det["bbox"]) == 4:
                         x1, y1, x2, y2 = det["bbox"]
                         x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
-                        cv2.rectangle(processed_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                        cv2.putText(processed_frame, det["label"], (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                        
+                        # Define colors based on label
+                        color = (0, 255, 0) # Default Green for general detections (like 'person' or detected PPE)
+                        text_color = (0, 255, 0)
+
+                        # --- UPDATED DRAWING LOGIC FOR ANOMALIES (Task D) ---
+                        # Check if the label string contains "Non-Compliant" for red color
+                        if "Non-Compliant" in det["label"]:
+                            color = (0, 0, 255) # Red for anomaly
+                            text_color = (255, 255, 255) # White text on red background for visibility
+                        # --- END UPDATED DRAWING LOGIC ---
+                        
+                        cv2.rectangle(processed_frame, (x1, y1), (x2, y2), color, 2)
+                        cv2.putText(processed_frame, det["label"], (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, text_color, 2)
             
-            logging.debug(f"Frame {frame_count} processed. Status: {last_compliance_status}") # Use debug for high volume
+            # logging.debug only if logging level is DEBUG
+            logging.debug(f"Frame {frame_count} processed. Status: {last_compliance_status}, Inf. Time: {current_metrics['inference_time_ms']}ms")
 
         else:
-            # If not processing, use the last known compliance status for display
+            # logging.debug only if logging level is DEBUG
             logging.debug(f"Frame {frame_count} skipped ML processing. Using last status: {last_compliance_status}")
 
         # Always update status text on the frame sent to browser,
         # using the last known status (either current frame's or previous analyzed frame's).
         status_text = f"Status: {last_compliance_status}"
         cv2.putText(processed_frame, status_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+
+        # Calculate and update FPS for display on the frame itself and in metrics
+        if (time.time() - start_time) > 1: # Update FPS every second
+            fps = processed_frame_count / (time.time() - start_time)
+            current_metrics["fps"] = round(fps, 2)
+            processed_frame_count = 0
+            start_time = time.time()
+        
+        # Display FPS and Inference Time on the frame
+        fps_text = f"FPS: {current_metrics['fps']}"
+        inference_time_text = f"Inf. Time: {current_metrics['inference_time_ms']}ms"
+        cv2.putText(processed_frame, fps_text, (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
+        cv2.putText(processed_frame, inference_time_text, (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
 
 
         # Increment frame count
@@ -108,7 +151,12 @@ def generate_frames():
         logging.info("Webcam released.")
     streaming_active = False
     last_compliance_status = "N/A" # Reset status when stream ends
+    current_metrics["fps"] = 0.0 # Reset metrics when stream ends
+    current_metrics["inference_time_ms"] = 0.0
+    current_metrics["last_analysis_status"] = "N/A"
 
+
+# Define all your Flask routes here, after the 'app' object is created.
 
 @app.route('/')
 def home():
@@ -143,6 +191,12 @@ def stop_video_feed():
         return jsonify({"status": "Streaming stop request received. Please allow a moment for camera to release."})
     else:
         return jsonify({"status": "No active stream to stop"})
+
+# This is the /metrics route for the dashboard, correctly placed after app initialization
+@app.route('/metrics')
+def get_metrics():
+    global current_metrics
+    return jsonify(current_metrics)
 
 @app.route('/analyze_safety', methods=['POST'])
 def analyze_safety():
@@ -203,4 +257,6 @@ def uploaded_file(filename):
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
+    # debug=True allows for automatic reloading on code changes
+    # and provides a debugger, but should NEVER be used in production.
     app.run(debug=True, host='0.0.0.0', port=port)

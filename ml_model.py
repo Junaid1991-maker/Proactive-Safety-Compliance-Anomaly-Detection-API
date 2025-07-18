@@ -4,24 +4,35 @@
 import cv2
 import numpy as np
 import time
-import logging # Import logging for consistent output
+import logging
 
-# NEW: Import the YOLO model from ultralytics
+# Import the YOLO model from ultralytics
 from ultralytics import YOLO
 
-# Configure logging for ml_model.py (optional, but good practice for internal logging)
+# Configure logging for ml_model.py
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class SafetyComplianceModel:
     def __init__(self):
-        # NEW: Load a pre-trained YOLOv8nano model (n for nano, s for small, etc.)
-        # This model file (.pt) will be automatically downloaded the first time.
-        self.model = YOLO('yolov8n.pt')
-        logging.info("YOLOv8n model loaded successfully for SafetyComplianceModel.")
-        # Define the class names the YOLO model can detect
-        # These are for COCO dataset, which yolov8n.pt is trained on
-        # We'll specifically look for 'person' (class ID 0)
-        self.class_names = self.model.names
+        # Model for general object detection (e.g., 'person')
+        self.person_model = YOLO('yolov8n.pt')
+        logging.info("YOLOv8n model loaded successfully for person detection.")
+
+        # --- LOAD YOUR DEDICATED PPE MODEL HERE ---
+        # Make sure 'ppe.pt' is the correct path to your downloaded PPE model.
+        # This model should be trained to detect specific PPE items like 'hardhat', 'vest', etc.
+        self.ppe_model = YOLO('./ppe.pt') # <--- IMPORTANT: This path now points to your downloaded ppe.pt
+        logging.info("Dedicated PPE model loaded.")
+
+        # Define the required PPE classes for compliance checking
+        # These names MUST exactly match the class names in your PPE model's 'names' list.
+        # For the ppe.pt model from Vinayakmane47's repo, common classes include 'hardhat', 'vest', 'mask', 'glove'.
+        self.REQUIRED_PPE = {
+            "hardhat": True, # Set to True if hard hat is required
+            "vest": False    # Set to True if safety vest is required (change this to True if you want to check for vests)
+            # Add other required PPE here as needed (e.g., "mask": True)
+        }
+        logging.info(f"Configured required PPE: {self.REQUIRED_PPE}")
 
 
     def analyze_image(self, image_np_array):
@@ -29,41 +40,99 @@ class SafetyComplianceModel:
             logging.error("Input to analyze_image must be a NumPy array.")
             return {"error": "Input must be a NumPy array (image frame)."}
 
-        # Perform inference on the image frame
-        # conf=0.5 means only show detections with confidence > 50%
-        # verbose=False suppresses detailed output from the model's predict method
-        results = self.model.predict(image_np_array, conf=0.5, verbose=False)
-
         detections = []
-        compliance_status = "Compliant"
-        found_person = False # Flag to track if a person is detected
+        compliance_status = "Compliant: No Person Detected" # Default status
 
-        # Process the results. 'results' is a list of Results objects (one per image)
-        for r in results:
-            # 'boxes' contains bounding box information
+        # --- Stage 1: Detect Persons ---
+        # We use a slightly lower confidence threshold for initial person detection to ensure we catch everyone.
+        person_results = self.person_model.predict(image_np_array, conf=0.4, verbose=False) # Reduced conf for person detection
+        
+        found_person = False
+        non_compliant_persons_count = 0
+
+        for r in person_results:
             for box in r.boxes:
-                x1, y1, x2, y2 = map(int, box.xyxy[0]) # Get integer coordinates
-                confidence = round(float(box.conf[0]), 2) # Confidence score
-                class_id = int(box.cls[0]) # Class ID
+                class_id = int(box.cls[0])
+                label = self.person_model.names[class_id]
+                confidence = round(float(box.conf[0]), 2)
 
-                label = self.class_names[class_id] # Get the class name from ID
-
-                # Only add to detections if it's a person
                 if label == "person":
-                    found_person = True
-                    detections.append({
-                        "label": label,
-                        "confidence": confidence,
-                        "bbox": [x1, y1, x2, y2]
-                    })
+                    x1_p, y1_p, x2_p, y2_p = map(int, box.xyxy[0])
+                    
+                    # Ensure bounding box coordinates are within image dimensions
+                    x1_p = max(0, x1_p)
+                    y1_p = max(0, y1_p)
+                    x2_p = min(image_np_array.shape[1], x2_p)
+                    y2_p = min(image_np_array.shape[0], y2_p)
 
-        # Based on detection results, determine compliance status
-        # For this example, let's say "Non-Compliant" if a person is detected
-        # This logic can be expanded for PPE (e.g., if person detected BUT no hardhat)
+                    # Crop the Region of Interest (ROI) for PPE analysis
+                    person_roi = image_np_array[y1_p:y2_p, x1_p:x2_p]
+                    
+                    person_has_all_required_ppe = True
+                    missing_ppe_items = []
+
+                    if person_roi.size > 0 and person_roi.shape[0] > 0 and person_roi.shape[1] > 0: # Ensure ROI is valid
+                        # --- Stage 2: Analyze PPE within the detected person's ROI ---
+                        ppe_results = self.ppe_model.predict(person_roi, conf=0.5, verbose=False) # Adjust conf for PPE model as needed
+
+                        detected_ppe_labels = set()
+                        for p_r in ppe_results:
+                            for p_box in p_r.boxes:
+                                ppe_class_id = int(p_box.cls[0])
+                                ppe_label = self.ppe_model.names[ppe_class_id]
+                                detected_ppe_labels.add(ppe_label)
+
+                                # Add PPE detection to the overall list (adjusting coords to original image)
+                                # Only add specific PPE detections, not 'no_hardhat' if that's a class
+                                if ppe_label in self.REQUIRED_PPE and self.REQUIRED_PPE[ppe_label]:
+                                    x1_ppe, y1_ppe, x2_ppe, y2_ppe = map(int, p_box.xyxy[0])
+                                    detections.append({
+                                        "label": ppe_label,
+                                        "confidence": round(float(p_box.conf[0]), 2),
+                                        "bbox": [x1_ppe + x1_p, y1_ppe + y1_p, x2_ppe + x1_p, y2_ppe + y1_p]
+                                    })
+                        
+                        # Check for missing required PPE
+                        for required_item, is_required in self.REQUIRED_PPE.items():
+                            if is_required and required_item not in detected_ppe_labels:
+                                person_has_all_required_ppe = False
+                                missing_ppe_items.append(required_item)
+                                logging.info(f"Person at [{x1_p},{y1_p},{x2_p},{y2_p}] missing: {required_item}")
+                                
+                    else:
+                        logging.warning(f"Empty or invalid ROI for person at [{x1_p},{y1_p},{x2_p},{y2_p}]. Skipping PPE check.")
+                        person_has_all_required_ppe = False # Cannot confirm PPE if ROI is bad
+                        missing_ppe_items.append("PPE check failed (invalid ROI)")
+
+
+                    # Add the person detection itself to ensure the person is always drawn
+                    detections.append({
+                        "label": label, # 'person'
+                        "confidence": confidence,
+                        "bbox": [x1_p, y1_p, x2_p, y2_p]
+                    })
+                    
+                    found_person = True
+
+                    # Update overall compliance status for this person
+                    if not person_has_all_required_ppe:
+                        non_compliant_persons_count += 1
+                        # Create a specific anomaly label for visualization
+                        anomaly_label = f"Non-Compliant: No {', No '.join([item.replace('_', ' ').title() for item in missing_ppe_items])}"
+                        detections.append({
+                            "label": anomaly_label,
+                            "confidence": 1.0, # High confidence for anomaly if missing PPE
+                            "bbox": [x1_p, y1_p, x2_p, y2_p] # Anomaly bounding box around the person
+                        })
+                        
+        # Final compliance status based on all persons in the frame
         if found_person:
-            compliance_status = "Person Detected" # Or "Non-Compliant" if person in restricted area
+            if non_compliant_persons_count > 0:
+                compliance_status = f"Non-Compliant: {non_compliant_persons_count} person(s) missing PPE"
+            else:
+                compliance_status = "Compliant: All persons wearing required PPE"
         else:
-            compliance_status = "No Person Detected" # Or "Compliant" if no person when expected
+            compliance_status = "Compliant: No Person Detected"
 
         final_results = {
             "compliance_status": compliance_status,
@@ -73,11 +142,3 @@ class SafetyComplianceModel:
         }
         logging.info(f"ML model processed frame. Status: {compliance_status}")
         return final_results
-
-# Optional: Keep this function if your original /analyze_safety endpoint
-# needs to load images from file paths before passing to analyze_image.
-def load_image_from_file(image_path):
-    if not os.path.exists(image_path):
-        logging.error(f"Image file not found at {image_path}")
-        return None
-    return cv2.imread(image_path)
