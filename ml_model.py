@@ -24,10 +24,11 @@ class SafetyComplianceModel:
         self.ppe_model = YOLO('./ppe.pt')
         logging.info("Dedicated PPE model loaded.")
 
-        # Define the required PPE classes for compliance checking
+        # --- MODIFIED: Define the required PPE classes for compliance checking ---
+        # Set both 'hardhat' and 'vest' to True to enforce both
         self.REQUIRED_PPE = {
-            "hardhat": True, # Set to True if hard hat is required
-            "vest": False    # Set to True if safety vest is required
+            "hardhat": True, # Hard hat is now REQUIRED
+            "vest": True     # Safety vest is now REQUIRED
         }
         logging.info(f"Configured required PPE: {self.REQUIRED_PPE}")
 
@@ -46,7 +47,7 @@ class SafetyComplianceModel:
         Internal method to log an anomaly and save a snapshot.
         """
         current_time = time.time()
-        
+
         # Add a cooldown mechanism
         if (current_time - self.last_logged_anomaly_time) < self.logging_cooldown_seconds:
             logging.debug(f"Skipping anomaly log due to cooldown. Last log was {current_time - self.last_logged_anomaly_time:.2f} seconds ago.")
@@ -54,7 +55,7 @@ class SafetyComplianceModel:
 
         timestamp_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         anomaly_description = f"Missing: {', '.join([item.replace('_', ' ').title() for item in missing_ppe_items])}"
-        
+
         # Define snapshot filename
         snapshot_filename = f"anomaly_{timestamp_str}_{person_id if person_id else 'unknown'}.jpg"
         snapshot_filepath = os.path.join(self.snapshot_dir, snapshot_filename)
@@ -64,7 +65,7 @@ class SafetyComplianceModel:
         # Ensure coordinates are within frame boundaries for drawing
         x1, y1 = max(0, x1), max(0, y1)
         x2, y2 = min(frame.shape[1], x2), min(frame.shape[0], y2)
-        
+
         snapshot_frame = frame.copy()
         cv2.rectangle(snapshot_frame, (x1, y1), (x2, y2), (0, 0, 255), 2) # Red box
         cv2.putText(snapshot_frame, "Anomaly: " + anomaly_description, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
@@ -105,7 +106,7 @@ class SafetyComplianceModel:
 
         # --- Stage 1: Detect Persons ---
         person_results = self.person_model.predict(image_np_array, conf=0.4, verbose=False)
-        
+
         found_person = False
         non_compliant_persons_count = 0
         person_id_counter = 0 # Simple counter for unique person ID within a frame
@@ -121,7 +122,7 @@ class SafetyComplianceModel:
                     current_person_id = f"person_{person_id_counter}"
 
                     x1_p, y1_p, x2_p, y2_p = map(int, box.xyxy[0])
-                    
+
                     # Ensure bounding box coordinates are within image dimensions
                     x1_p = max(0, x1_p)
                     y1_p = max(0, y1_p)
@@ -130,7 +131,7 @@ class SafetyComplianceModel:
 
                     # Crop the Region of Interest (ROI) for PPE analysis
                     person_roi = image_np_array[y1_p:y2_p, x1_p:x2_p]
-                    
+
                     person_has_all_required_ppe = True
                     missing_ppe_items = []
 
@@ -146,7 +147,7 @@ class SafetyComplianceModel:
                                 detected_ppe_labels.add(ppe_label)
 
                                 # Add PPE detection to the overall list (adjusting coords to original image)
-                                # Only add specific PPE detections, not 'no_hardhat' if that's a class
+                                # Only add specific PPE detections that are *required* and detected
                                 if ppe_label in self.REQUIRED_PPE and self.REQUIRED_PPE[ppe_label]:
                                     x1_ppe, y1_ppe, x2_ppe, y2_ppe = map(int, p_box.xyxy[0])
                                     detections.append({
@@ -154,14 +155,14 @@ class SafetyComplianceModel:
                                         "confidence": round(float(p_box.conf[0]), 2),
                                         "bbox": [x1_ppe + x1_p, y1_ppe + y1_p, x2_ppe + x1_p, y2_ppe + y1_p]
                                     })
-                        
+
                         # Check for missing required PPE
                         for required_item, is_required in self.REQUIRED_PPE.items():
                             if is_required and required_item not in detected_ppe_labels:
                                 person_has_all_required_ppe = False
                                 missing_ppe_items.append(required_item)
                                 logging.info(f"Person at [{x1_p},{y1_p},{x2_p},{y2_p}] missing: {required_item}")
-                                
+
                     else:
                         logging.warning(f"Empty or invalid ROI for person at [{x1_p},{y1_p},{x2_p},{y2_p}]. Skipping PPE check.")
                         person_has_all_required_ppe = False # Cannot confirm PPE if ROI is bad
@@ -174,7 +175,7 @@ class SafetyComplianceModel:
                         "confidence": confidence,
                         "bbox": [x1_p, y1_p, x2_p, y2_p]
                     })
-                    
+
                     found_person = True
 
                     # Update overall compliance status for this person
@@ -187,10 +188,10 @@ class SafetyComplianceModel:
                             "confidence": 1.0, # High confidence for anomaly if missing PPE
                             "bbox": [x1_p, y1_p, x2_p, y2_p] # Anomaly bounding box around the person
                         })
-                        
-                        # --- Call the logging method here ---
+
+                        # Call the logging method here
                         self._log_anomaly(image_np_array, [x1_p, y1_p, x2_p, y2_p], missing_ppe_items, current_person_id)
-                        
+
         # Final compliance status based on all persons in the frame
         if found_person:
             if non_compliant_persons_count > 0:
