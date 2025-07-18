@@ -1,0 +1,24 @@
+Timestamp: 20250718_123726
+Anomaly Type: Missing PPE
+Details: Missing: Hardhat
+Person BBox: [59, 109, 577, 479]
+Snapshot: anomaly_logs\anomaly_20250718_123726_person_1.jpg
+--------------------------------------------------
+Timestamp: 20250718_123737
+Anomaly Type: Missing PPE
+Details: Missing: Hardhat
+Person BBox: [59, 111, 637, 479]
+Snapshot: anomaly_logs\anomaly_20250718_123737_person_1.jpg
+--------------------------------------------------
+Timestamp: 20250718_123748
+Anomaly Type: Missing PPE
+Details: Missing: Hardhat
+Person BBox: [24, 25, 625, 476]
+Snapshot: anomaly_logs\anomaly_20250718_123748_person_1.jpg
+--------------------------------------------------
+Timestamp: 20250718_123801
+Anomaly Type: Missing PPE
+Details: Missing: Hardhat
+Person BBox: [48, 1, 638, 479]
+Snapshot: anomaly_logs\anomaly_20250718_123801_person_1.jpg
+--------------------------------------------------

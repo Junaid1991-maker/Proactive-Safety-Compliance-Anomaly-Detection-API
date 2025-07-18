@@ -5,6 +5,8 @@ import cv2
 import numpy as np
 import time
 import logging
+import os # Import os module for path operations
+import datetime # Import datetime for timestamps
 
 # Import the YOLO model from ultralytics
 from ultralytics import YOLO
@@ -19,20 +21,78 @@ class SafetyComplianceModel:
         logging.info("YOLOv8n model loaded successfully for person detection.")
 
         # --- LOAD YOUR DEDICATED PPE MODEL HERE ---
-        # Make sure 'ppe.pt' is the correct path to your downloaded PPE model.
-        # This model should be trained to detect specific PPE items like 'hardhat', 'vest', etc.
-        self.ppe_model = YOLO('./ppe.pt') # <--- IMPORTANT: This path now points to your downloaded ppe.pt
+        self.ppe_model = YOLO('./ppe.pt')
         logging.info("Dedicated PPE model loaded.")
 
         # Define the required PPE classes for compliance checking
-        # These names MUST exactly match the class names in your PPE model's 'names' list.
-        # For the ppe.pt model from Vinayakmane47's repo, common classes include 'hardhat', 'vest', 'mask', 'glove'.
         self.REQUIRED_PPE = {
             "hardhat": True, # Set to True if hard hat is required
-            "vest": False    # Set to True if safety vest is required (change this to True if you want to check for vests)
-            # Add other required PPE here as needed (e.g., "mask": True)
+            "vest": False    # Set to True if safety vest is required
         }
         logging.info(f"Configured required PPE: {self.REQUIRED_PPE}")
+
+        # --- Configuration for Anomaly Logging ---
+        self.log_file_path = os.path.join('anomaly_logs', 'anomaly_log.txt') # Log file inside anomaly_logs folder
+        self.snapshot_dir = 'anomaly_logs' # Directory for snapshots (same as log file for simplicity)
+        os.makedirs(self.snapshot_dir, exist_ok=True) # Ensure the directory exists
+        logging.info(f"Anomaly logs will be saved to: {self.log_file_path} and snapshots to: {self.snapshot_dir}")
+
+        # Keep track of the last logged anomaly time to prevent rapid re-logging
+        self.last_logged_anomaly_time = 0
+        self.logging_cooldown_seconds = 10 # Only log a new anomaly every 10 seconds per person
+
+    def _log_anomaly(self, frame, person_bbox, missing_ppe_items, person_id=None):
+        """
+        Internal method to log an anomaly and save a snapshot.
+        """
+        current_time = time.time()
+        
+        # Add a cooldown mechanism
+        if (current_time - self.last_logged_anomaly_time) < self.logging_cooldown_seconds:
+            logging.debug(f"Skipping anomaly log due to cooldown. Last log was {current_time - self.last_logged_anomaly_time:.2f} seconds ago.")
+            return
+
+        timestamp_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        anomaly_description = f"Missing: {', '.join([item.replace('_', ' ').title() for item in missing_ppe_items])}"
+        
+        # Define snapshot filename
+        snapshot_filename = f"anomaly_{timestamp_str}_{person_id if person_id else 'unknown'}.jpg"
+        snapshot_filepath = os.path.join(self.snapshot_dir, snapshot_filename)
+
+        # Draw the anomaly box on the snapshot before saving
+        x1, y1, x2, y2 = person_bbox
+        # Ensure coordinates are within frame boundaries for drawing
+        x1, y1 = max(0, x1), max(0, y1)
+        x2, y2 = min(frame.shape[1], x2), min(frame.shape[0], y2)
+        
+        snapshot_frame = frame.copy()
+        cv2.rectangle(snapshot_frame, (x1, y1), (x2, y2), (0, 0, 255), 2) # Red box
+        cv2.putText(snapshot_frame, "Anomaly: " + anomaly_description, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+        cv2.putText(snapshot_frame, timestamp_str, (10, snapshot_frame.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+
+        # Save snapshot
+        try:
+            cv2.imwrite(snapshot_filepath, snapshot_frame)
+            logging.info(f"Anomaly snapshot saved: {snapshot_filepath}")
+        except Exception as e:
+            logging.error(f"Failed to save anomaly snapshot {snapshot_filepath}: {e}")
+
+        # Log entry to file
+        log_entry = (
+            f"Timestamp: {timestamp_str}\n"
+            f"Anomaly Type: Missing PPE\n"
+            f"Details: {anomaly_description}\n"
+            f"Person BBox: {person_bbox}\n"
+            f"Snapshot: {snapshot_filepath}\n"
+            f"{'-'*50}\n"
+        )
+        try:
+            with open(self.log_file_path, 'a') as f:
+                f.write(log_entry)
+            logging.info(f"Anomaly logged to {self.log_file_path}")
+            self.last_logged_anomaly_time = current_time # Update last logged time
+        except Exception as e:
+            logging.error(f"Failed to write anomaly log to {self.log_file_path}: {e}")
 
 
     def analyze_image(self, image_np_array):
@@ -44,11 +104,11 @@ class SafetyComplianceModel:
         compliance_status = "Compliant: No Person Detected" # Default status
 
         # --- Stage 1: Detect Persons ---
-        # We use a slightly lower confidence threshold for initial person detection to ensure we catch everyone.
-        person_results = self.person_model.predict(image_np_array, conf=0.4, verbose=False) # Reduced conf for person detection
+        person_results = self.person_model.predict(image_np_array, conf=0.4, verbose=False)
         
         found_person = False
         non_compliant_persons_count = 0
+        person_id_counter = 0 # Simple counter for unique person ID within a frame
 
         for r in person_results:
             for box in r.boxes:
@@ -57,6 +117,9 @@ class SafetyComplianceModel:
                 confidence = round(float(box.conf[0]), 2)
 
                 if label == "person":
+                    person_id_counter += 1
+                    current_person_id = f"person_{person_id_counter}"
+
                     x1_p, y1_p, x2_p, y2_p = map(int, box.xyxy[0])
                     
                     # Ensure bounding box coordinates are within image dimensions
@@ -124,6 +187,9 @@ class SafetyComplianceModel:
                             "confidence": 1.0, # High confidence for anomaly if missing PPE
                             "bbox": [x1_p, y1_p, x2_p, y2_p] # Anomaly bounding box around the person
                         })
+                        
+                        # --- Call the logging method here ---
+                        self._log_anomaly(image_np_array, [x1_p, y1_p, x2_p, y2_p], missing_ppe_items, current_person_id)
                         
         # Final compliance status based on all persons in the frame
         if found_person:
