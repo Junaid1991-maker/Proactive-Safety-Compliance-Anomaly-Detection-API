@@ -35,18 +35,22 @@ logging.info("Flask app initialized and ML model loaded.")
 streaming_active = False
 camera_feed = None # To hold the cv2.VideoCapture object
 last_compliance_status = "N/A" # To hold the last detected status for skipped frames
+
+# Global variable for frame skipping interval, now configurable
+global_skip_frames_interval = 3 # Default value
+
 # Global dictionary to store current metrics for the dashboard
 current_metrics = {
     "fps": 0.0,
     "inference_time_ms": 0.0,
     "last_analysis_status": "N/A",
-    "is_anomaly": False # NEW: Flag for anomaly detection
+    "is_anomaly": False
 }
 
 
 # Generator function for video streaming (must be defined before routes that use it, like /video_feed)
 def generate_frames():
-    global streaming_active, camera_feed, last_compliance_status, current_metrics # Access global metrics
+    global streaming_active, camera_feed, last_compliance_status, current_metrics, global_skip_frames_interval # Access global metrics and interval
     camera_feed = cv2.VideoCapture(0)
 
     if not camera_feed.isOpened():
@@ -60,9 +64,6 @@ def generate_frames():
     logging.info("Webcam successfully opened for streaming.")
 
     frame_count = 0
-    # Adjust this value: 1 means process every frame, 2 means process every 2nd frame, etc.
-    # Start with 3 or 4 and increase if needed for performance.
-    skip_frames_interval = 3 # Process ML on every 3rd frame
     
     # Variables for FPS calculation
     start_time = time.time()
@@ -80,8 +81,8 @@ def generate_frames():
         # Initialize is_anomaly flag for this frame before processing
         current_metrics["is_anomaly"] = False 
 
-        # Apply frame skipping logic
-        if frame_count % skip_frames_interval == 0:
+        # Apply frame skipping logic using the global_skip_frames_interval
+        if frame_count % global_skip_frames_interval == 0:
             # Measure inference time
             inference_start_time = time.time()
             analysis_results = ml_model.analyze_image(frame) # Pass original frame for analysis
@@ -94,11 +95,10 @@ def generate_frames():
             last_compliance_status = analysis_results.get('compliance_status', 'N/A')
             current_metrics["last_analysis_status"] = last_compliance_status
 
-            # --- NEW: Check if current status indicates an anomaly for alerting ---
+            # Check if current status indicates an anomaly for alerting
             if "Non-Compliant" in last_compliance_status:
                 current_metrics["is_anomaly"] = True
-            # --- END NEW ---
-
+            
             # Draw detections on the processed_frame
             if "detections" in analysis_results and analysis_results["detections"]:
                 for det in analysis_results["detections"]:
@@ -118,11 +118,9 @@ def generate_frames():
                         cv2.rectangle(processed_frame, (x1, y1), (x2, y2), color, 2)
                         cv2.putText(processed_frame, det["label"], (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, text_color, 2)
             
-            # logging.debug only if logging level is DEBUG
             logging.debug(f"Frame {frame_count} processed. Status: {last_compliance_status}, Inf. Time: {current_metrics['inference_time_ms']}ms")
 
         else:
-            # logging.debug only if logging level is DEBUG
             logging.debug(f"Frame {frame_count} skipped ML processing. Using last status: {last_compliance_status}")
 
         # Always update status text on the frame sent to browser,
@@ -142,6 +140,10 @@ def generate_frames():
         inference_time_text = f"Inf. Time: {current_metrics['inference_time_ms']}ms"
         cv2.putText(processed_frame, fps_text, (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
         cv2.putText(processed_frame, inference_time_text, (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
+
+        # Display current skip frames interval
+        skip_interval_text = f"Skip: {global_skip_frames_interval}"
+        cv2.putText(processed_frame, skip_interval_text, (processed_frame.shape[1] - 150, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
 
 
         # Increment frame count
@@ -206,6 +208,25 @@ def get_metrics():
     global current_metrics
     return jsonify(current_metrics)
 
+# NEW: Endpoint to update the skip_frames_interval
+@app.route('/update_settings', methods=['POST'])
+def update_settings():
+    global global_skip_frames_interval
+    data = request.get_json()
+    if 'skip_frames_interval' in data:
+        try:
+            new_interval = int(data['skip_frames_interval'])
+            if new_interval >= 1: # Ensure it's a positive integer
+                global_skip_frames_interval = new_interval
+                logging.info(f"Skip frames interval updated to: {global_skip_frames_interval}")
+                return jsonify({"status": "Success", "new_interval": global_skip_frames_interval}), 200
+            else:
+                return jsonify({"error": "Skip frames interval must be a positive integer."}), 400
+        except ValueError:
+            return jsonify({"error": "Invalid value for skip_frames_interval. Must be an integer."}), 400
+    return jsonify({"error": "No skip_frames_interval provided."}), 400
+
+
 @app.route('/analyze_safety', methods=['POST'])
 def analyze_safety():
     """
@@ -265,6 +286,4 @@ def uploaded_file(filename):
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    # debug=True allows for automatic reloading on code changes
-    # and provides a debugger, but should NEVER be used in production.
     app.run(debug=True, host='0.0.0.0', port=port)

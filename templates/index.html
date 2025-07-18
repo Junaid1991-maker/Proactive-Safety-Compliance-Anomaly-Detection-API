@@ -3,63 +3,262 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Safety Compliance Monitor</title>
+    <title>Proactive Safety Compliance Monitor</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
     <style>
-        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f4f4; color: #333; }
-        .container { max-width: 900px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
-        h1, h2 { text-align: center; color: #0056b3; }
-        img { max-width: 100%; height: auto; display: block; margin: 20px auto; border: 1px solid #ddd; border-radius: 4px; }
+        /* General Styling */
+        body { 
+            font-family: 'Roboto', sans-serif; 
+            margin: 0; 
+            background-color: #e0e5ec; /* Light grayish-blue, Neumorphic base */
+            color: #333; 
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        .container { 
+            background: #e0e5ec;
+            padding: 30px; 
+            border-radius: 20px; 
+            box-shadow: 
+                6px 6px 12px #a3b1c6, 
+                -6px -6px 12px #ffffff; /* Neumorphic shadow */
+            max-width: 1000px; 
+            width: 100%;
+            display: grid;
+            grid-template-columns: 2fr 1fr; /* Video on left, metrics/logs on right */
+            gap: 30px;
+            overflow: hidden; /* Prevent shadow overflow issues */
+        }
+        h1, h2 { 
+            text-align: center; 
+            color: #333; 
+            grid-column: 1 / -1; /* Span across both columns */
+            margin-top: 0;
+            margin-bottom: 25px;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.1);
+        }
+
+        /* Video Feed */
+        #video-feed-container {
+            grid-column: 1;
+            padding: 15px;
+            border-radius: 15px;
+            background: #e0e5ec;
+            box-shadow: 
+                inset 5px 5px 10px #b1c1d8, 
+                inset -5px -5px 10px #f0ffff; /* Inset Neumorphic effect */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+        }
+        #video-feed { 
+            width: 100%; 
+            height: auto; 
+            border-radius: 10px; /* Slightly smaller radius for image inside */
+            display: block; 
+        }
+
+        /* Right Panel (Metrics and Logs) */
+        .right-panel {
+            grid-column: 2;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        /* Dashboard Metrics */
+        .dashboard-metrics, #compliance-status-card, .event-log-card, .control-buttons {
+            padding: 20px;
+            border-radius: 15px;
+            background: #e0e5ec;
+            box-shadow: 
+                5px 5px 10px #b1c1d8, 
+                -5px -5px 10px #f0ffff; /* Outset Neumorphic effect */
+        }
+
         .dashboard-metrics {
             display: flex;
-            justify-content: space-around;
-            margin-top: 20px;
-            padding: 10px;
-            background-color: #e9ecef;
-            border-radius: 5px;
+            flex-direction: column; /* Stack metrics vertically */
+            gap: 15px;
         }
         .metric-item {
-            text-align: center;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
             font-size: 1.1em;
-            font-weight: bold;
-            color: #495057;
+            font-weight: 500;
+            padding: 8px 0;
+            border-bottom: 1px solid #c8d0e7; /* Subtle separator */
         }
-        #compliance-status {
-            font-size: 1.3em;
-            color: green; /* Default color for compliant */
+        .metric-item:last-child {
+            border-bottom: none;
+        }
+        .metric-value {
+            font-weight: 700;
+            color: #0056b3; /* Primary accent color */
+        }
+
+        /* Compliance Status Card */
+        #compliance-status-card {
             text-align: center;
-            margin-top: 15px;
-            padding: 8px;
-            border-radius: 5px;
-            background-color: #d4edda; /* Light green background */
+            font-size: 1.4em;
+            font-weight: bold;
+            transition: background-color 0.3s ease, color 0.3s ease; /* Smooth transition */
+        }
+        /* Default compliant style (will be overridden by JS) */
+        #compliance-status-card.compliant {
+            background-color: #d4edda; /* Light green */
+            color: #155724; /* Dark green text */
+        }
+        /* Non-compliant style (set by JS) */
+        #compliance-status-card.non-compliant {
+            background-color: #f8d7da; /* Light red */
+            color: #721c24; /* Dark red text */
+        }
+        #last-updated {
+            font-size: 0.85em;
+            color: #666;
+            margin-top: 10px;
+        }
+
+
+        /* Event Log */
+        .event-log-card h2 {
+            font-size: 1.3em;
+            margin-top: 0;
+            margin-bottom: 15px;
+        }
+        .event-log-card ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .event-log-card li {
+            background-color: #f0f3f6; /* Slightly lighter neumorphic inset background */
+            padding: 10px;
+            border-radius: 10px;
+            margin-bottom: 10px;
+            font-size: 0.9em;
+            border: 1px solid #c8d0e7;
+            box-shadow: 
+                inset 2px 2px 5px #b1c1d8, 
+                inset -2px -2px 5px #f0ffff;
+            word-wrap: break-word; /* Ensure long text wraps */
+        }
+        .event-log-card li strong {
+            color: #d9534f; /* Red for anomaly type */
+        }
+        .event-log-card li span.timestamp {
+            font-size: 0.8em;
+            color: #888;
+            display: block; /* New line for timestamp */
+            margin-top: 5px;
+        }
+
+        /* Control Buttons */
+        .control-buttons {
+            display: flex;
+            justify-content: space-around;
+            padding: 15px;
+        }
+        .control-buttons button {
+            background-color: #007bff; /* Blue button */
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 10px;
+            font-size: 1em;
+            cursor: pointer;
+            outline: none;
+            transition: all 0.2s ease;
+            box-shadow: 
+                3px 3px 6px #b1c1d8, 
+                -3px -3px 6px #f0ffff; /* Button neumorphic shadow */
+        }
+        .control-buttons button:hover {
+            background-color: #0056b3;
+            box-shadow: 
+                inset 2px 2px 4px #b1c1d8, 
+                inset -2px -2px 4px #f0ffff; /* Inset on hover */
+        }
+        .control-buttons button:active {
+            box-shadow: 
+                inset 1px 1px 2px #b1c1d8, 
+                inset -1px -1px 2px #f0ffff; /* Deeper inset on click */
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            .container {
+                grid-template-columns: 1fr; /* Stack columns on smaller screens */
+                padding: 15px;
+                gap: 20px;
+            }
+            .dashboard-metrics, #compliance-status-card, .event-log-card, .control-buttons {
+                padding: 15px;
+            }
+            h1 {
+                font-size: 1.8em;
+            }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Live Safety Compliance Monitor</h1>
+        <h1>Proactive Safety Compliance Monitor</h1>
         
-        <img id="video-feed" src="{{ url_for('video_feed') }}" alt="Live Camera Feed">
+        <div id="video-feed-container">
+            <img id="video-feed" src="{{ url_for('video_feed') }}" alt="Live Camera Feed">
+        </div>
 
-        <div class="dashboard-metrics">
-            <div class="metric-item">
-                FPS: <span id="fps">0.0</span>
+        <div class="right-panel">
+            <div class="dashboard-metrics">
+                <div class="metric-item">
+                    <span>FPS:</span> <span class="metric-value" id="fps">0.0</span>
+                </div>
+                <div class="metric-item">
+                    <span>Inference Time (ms):</span> <span class="metric-value" id="inference-time">0.0</span>
+                </div>
             </div>
-            <div class="metric-item">
-                Inference Time (ms): <span id="inference-time">0.0</span>
+
+            <div id="compliance-status-card">
+                <span id="compliance-status">Loading Status...</span>
+                <div id="last-updated">Last Updated: <span id="last-updated-time">N/A</span></div>
+            </div>
+
+            <div class="event-log-card">
+                <h2>Recent Anomalies</h2>
+                <ul id="anomaly-log-list">
+                    <li>No recent anomalies.</li>
+                </ul>
+            </div>
+
+            <div class="control-buttons">
+                <button onclick="stopStream()">Stop Monitoring</button>
+                <button onclick="startStream()">Start Monitoring</button>
             </div>
         </div>
-        <div id="compliance-status">Loading Status...</div>
-
-        <p style="text-align: center; margin-top: 20px;">
-            <button onclick="stopStream()">Stop Monitoring</button>
-            <button onclick="startStream()">Start Monitoring</button>
-        </p>
     </div>
 
     <script>
-        // This variable is outside the function but within the script tag
-        // It helps prevent continuous alerts for the same ongoing anomaly.
-        let lastAnomalyState = false; 
+        let lastAnomalyState = false; // To prevent continuous alerts
+        let metricsInterval; // Declare interval variable outside to manage it
+
+        function formatTimestamp(isoString) {
+            // Function to format the timestamp string from YYYYMMDD_HHMMSS
+            const year = isoString.substring(0, 4);
+            const month = isoString.substring(4, 6);
+            const day = isoString.substring(6, 8);
+            const hour = isoString.substring(9, 11);
+            const minute = isoString.substring(11, 13);
+            const second = isoString.substring(13, 15);
+            return `${month}/${day}/${year} ${hour}:${minute}:${second}`;
+        }
 
         function updateMetrics() {
             fetch('/metrics')
@@ -68,58 +267,106 @@
                     document.getElementById('fps').innerText = data.fps;
                     document.getElementById('inference-time').innerText = data.inference_time_ms;
                     document.getElementById('compliance-status').innerText = data.last_analysis_status;
+                    document.getElementById('last-updated-time').innerText = new Date().toLocaleTimeString();
 
-                    // Dynamically change compliance status background color
-                    const complianceStatusElement = document.getElementById('compliance-status');
+                    // Dynamically change compliance status background color and class
+                    const complianceStatusElement = document.getElementById('compliance-status-card'); // Target the card
                     if (data.last_analysis_status.includes("Non-Compliant")) {
-                        complianceStatusElement.style.backgroundColor = '#f8d7da'; // Light red
-                        complianceStatusElement.style.color = '#721c24'; // Dark red text
+                        complianceStatusElement.classList.remove('compliant');
+                        complianceStatusElement.classList.add('non-compliant');
                     } else {
-                        complianceStatusElement.style.backgroundColor = '#d4edda'; // Light green
-                        complianceStatusElement.style.color = 'green'; // Green text
+                        complianceStatusElement.classList.remove('non-compliant');
+                        complianceStatusElement.classList.add('compliant');
                     }
 
                     // --- Anomaly Alert Logic ---
-                    // Only show alert if it's an anomaly AND the state just changed from non-anomaly to anomaly
                     if (data.is_anomaly && !lastAnomalyState) {
                         alert('🚨 SAFETY ANOMALY DETECTED! 🚨\n\nStatus: ' + data.last_analysis_status);
-                        console.warn('SAFETY ANOMALY DETECTED:', data.last_analysis_status); // Log to browser console as well
+                        console.warn('SAFETY ANOMALY DETECTED:', data.last_analysis_status); 
                     }
-                    lastAnomalyState = data.is_anomaly; // Update the last state for the next check
+                    lastAnomalyState = data.is_anomaly; 
                     // --- End Anomaly Alert Logic ---
+
+                    // --- Update Anomaly Log List ---
+                    const anomalyLogList = document.getElementById('anomaly-log-list');
+                    anomalyLogList.innerHTML = ''; // Clear previous entries
+
+                    if (data.recent_anomaly_logs && data.recent_anomaly_logs.length > 0) {
+                        data.recent_anomaly_logs.forEach(logEntry => {
+                            const li = document.createElement('li');
+                            // Extract parts from the log entry string
+                            const timestampMatch = logEntry.match(/Timestamp: (\d{8}_\d{6})/);
+                            const anomalyTypeMatch = logEntry.match(/Anomaly Type: (.+)/);
+                            const detailsMatch = logEntry.match(/Details: (.+)/);
+
+                            let timestamp = 'N/A';
+                            let anomalyType = 'Unknown';
+                            let details = 'No details provided.';
+
+                            if (timestampMatch) {
+                                timestamp = formatTimestamp(timestampMatch[1]);
+                            }
+                            if (anomalyTypeMatch) {
+                                anomalyType = anomalyTypeMatch[1];
+                            }
+                            if (detailsMatch) {
+                                details = detailsMatch[1];
+                            }
+
+                            li.innerHTML = `<strong>${anomalyType}</strong>: ${details}<span class="timestamp">${timestamp}</span>`;
+                            anomalyLogList.appendChild(li);
+                        });
+                    } else {
+                        const li = document.createElement('li');
+                        li.innerText = 'No recent anomalies.';
+                        anomalyLogList.appendChild(li);
+                    }
+                    // --- End Update Anomaly Log List ---
+
                 })
-                .catch(error => console.error('Error fetching metrics:', error));
+                .catch(error => {
+                    console.error('Error fetching metrics:', error);
+                    // Optionally update status to indicate error
+                    document.getElementById('compliance-status').innerText = "Error: Check API";
+                    document.getElementById('compliance-status-card').classList.remove('compliant', 'non-compliant');
+                    document.getElementById('compliance-status-card').style.backgroundColor = '#ffeeba'; /* Yellow for warning */
+                    document.getElementById('compliance-status-card').style.color = '#856404';
+                });
         }
 
-        // Start polling for metrics every 1 second (1000 milliseconds)
-        let metricsInterval = setInterval(updateMetrics, 1000);
+        // Start polling for metrics every 1 second
+        metricsInterval = setInterval(updateMetrics, 1000);
 
         function stopStream() {
             fetch('/stop_video_feed')
                 .then(response => response.json())
                 .then(data => {
                     console.log(data.status);
-                    document.getElementById('video-feed').src = ""; // Clear video feed by setting src to empty
-                    clearInterval(metricsInterval); // Stop polling for metrics
-                    // Update dashboard to reflect monitoring stopped state
+                    document.getElementById('video-feed').src = ""; // Clear video feed
+                    clearInterval(metricsInterval); // Stop polling
                     document.getElementById('compliance-status').innerText = "Monitoring Stopped";
-                    document.getElementById('compliance-status').style.backgroundColor = '#e2e3e5'; // Gray background
-                    document.getElementById('compliance-status').style.color = '#333'; // Dark text
+                    // Update card style for stopped state
+                    const complianceStatusElement = document.getElementById('compliance-status-card');
+                    complianceStatusElement.classList.remove('compliant', 'non-compliant');
+                    complianceStatusElement.style.backgroundColor = '#e2e3e5'; 
+                    complianceStatusElement.style.color = '#333';
+                    document.getElementById('last-updated-time').innerText = 'N/A';
                 })
                 .catch(error => console.error('Error stopping stream:', error));
         }
 
         function startStream() {
-            // The simplest way to restart the video feed and metrics polling
-            // is to reload the entire page.
+            // Reload the page to restart video feed and metrics
             location.reload(); 
         }
 
-        // Optional: Attempt to stop the stream if the user navigates away or closes the tab.
-        // This is a best effort and might not always work perfectly.
+        // Optional: Stop stream when the window is closed/navigated away
         window.addEventListener('beforeunload', function() {
             stopStream();
         });
+
+        // Initial call to update metrics when the page loads
+        updateMetrics(); 
     </script>
 </body>
 </html>

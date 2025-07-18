@@ -5,8 +5,9 @@ import cv2
 import numpy as np
 import time
 import logging
-import os # Import os module for path operations
-import datetime # Import datetime for timestamps
+import os
+import datetime
+import requests # Make sure this is imported at the top
 
 # Import the YOLO model from ultralytics
 from ultralytics import YOLO
@@ -16,21 +17,46 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 class SafetyComplianceModel:
     def __init__(self):
-        # Model for general object detection (e.g., 'person')
-        self.person_model = YOLO('yolov8n.pt')
-        logging.info("YOLOv8n model loaded successfully for person detection.")
+        logging.info("Initializing SafetyComplianceModel...")
 
-        # --- LOAD YOUR DEDICATED PPE MODEL HERE ---
-        self.ppe_model = YOLO('./ppe.pt')
+        # --- Handle yolov8n.pt model ---
+        # YOLOv8 often downloads 'yolov8n.pt' automatically on first use if not found.
+        # If Heroku build is failing due to yolov8n.pt not found, you might need a download URL for it too.
+        # For this example, we assume it's handled by ultralytics or is present.
+        self.person_model_path = './yolov8n.pt'
+        try:
+            self.person_model = YOLO(self.person_model_path)
+            logging.info(f"YOLOv8n model loaded successfully from {self.person_model_path}.")
+        except Exception as e:
+            logging.error(f"Failed to load yolov8n.pt model from {self.person_model_path}: {e}")
+            raise RuntimeError(f"Critical error: Failed to load YOLOv8n model from {self.person_model_path}. Make sure it's accessible or add specific download logic for it if needed for Heroku.")
+
+
+        # --- Handle Dedicated PPE Model (ppe.pt) ---
+        self.ppe_model_path = './ppe.pt'
+        # URL to download your ppe.pt from (raw.githubusercontent.com is good for this)
+        self.ppe_model_url = "https://raw.githubusercontent.com/Vinayakmane47/PPE_detection_YOLO/main/YOLO-Weights/ppe.pt" # YOUR MODEL URL
+
+        if not os.path.exists(self.ppe_model_path):
+            logging.info(f"PPE model not found at {self.ppe_model_path}. Attempting to download from {self.ppe_model_url}...")
+            try:
+                response = requests.get(self.ppe_model_url, stream=True, timeout=30) # Added timeout
+                response.raise_for_status() # Raise an HTTPError for bad responses (4xx or 5xx)
+                with open(self.ppe_model_path, 'wb') as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                logging.info("PPE model downloaded successfully!")
+            except requests.exceptions.RequestException as e:
+                logging.error(f"Failed to download PPE model from {self.ppe_model_url}: {e}")
+                raise RuntimeError(f"Critical error: Could not download PPE model: {e}. Check URL or network connectivity.")
+            except Exception as e:
+                logging.error(f"An unexpected error occurred during PPE model download: {e}")
+                raise RuntimeError(f"Critical error: An unexpected error occurred during PPE model download: {e}")
+        else:
+            logging.info(f"PPE model found locally at {self.ppe_model_path}.")
+
+        self.ppe_model = YOLO(self.ppe_model_path)
         logging.info("Dedicated PPE model loaded.")
-
-        # --- MODIFIED: Define the required PPE classes for compliance checking ---
-        # Set both 'hardhat' and 'vest' to True to enforce both
-        self.REQUIRED_PPE = {
-            "hardhat": True, # Hard hat is now REQUIRED
-            "vest": True     # Safety vest is now REQUIRED
-        }
-        logging.info(f"Configured required PPE: {self.REQUIRED_PPE}")
 
         # --- Configuration for Anomaly Logging ---
         self.log_file_path = os.path.join('anomaly_logs', 'anomaly_log.txt') # Log file inside anomaly_logs folder
@@ -41,6 +67,7 @@ class SafetyComplianceModel:
         # Keep track of the last logged anomaly time to prevent rapid re-logging
         self.last_logged_anomaly_time = 0
         self.logging_cooldown_seconds = 10 # Only log a new anomaly every 10 seconds per person
+        logging.info("SafetyComplianceModel initialization complete.")
 
     def _log_anomaly(self, frame, person_bbox, missing_ppe_items, person_id=None):
         """
@@ -85,7 +112,7 @@ class SafetyComplianceModel:
             f"Details: {anomaly_description}\n"
             f"Person BBox: {person_bbox}\n"
             f"Snapshot: {snapshot_filepath}\n"
-            f"{'-'*50}\n"
+            f"{'-'*50}\n" # Separator for easy parsing
         )
         try:
             with open(self.log_file_path, 'a') as f:
@@ -94,6 +121,37 @@ class SafetyComplianceModel:
             self.last_logged_anomaly_time = current_time # Update last logged time
         except Exception as e:
             logging.error(f"Failed to write anomaly log to {self.log_file_path}: {e}")
+
+    def get_last_n_anomaly_logs(self, n=5):
+        """
+        Reads the last N full anomaly entries from the log file.
+        Each entry is separated by a line of 50 hyphens.
+        """
+        log_entries = []
+        try:
+            with open(self.log_file_path, 'r') as f:
+                lines = f.readlines()
+
+            current_entry_lines = []
+            # Iterate through lines in reverse to find full entries efficiently
+            for line in reversed(lines):
+                current_entry_lines.insert(0, line) # Add to the beginning to maintain original order within an entry
+                if line.strip() == '-' * 50: # Check for the separator
+                    log_entries.insert(0, "".join(current_entry_lines).strip()) # Add the full entry to the front of list
+                    current_entry_lines = [] # Reset for next entry
+                    if len(log_entries) >= n:
+                        break # Stop if we have enough entries
+
+            # If there's a partial entry at the start due to file not ending with separator
+            if current_entry_lines and len(log_entries) < n:
+                log_entries.insert(0, "".join(current_entry_lines).strip())
+
+        except FileNotFoundError:
+            logging.warning(f"Anomaly log file not found at {self.log_file_path}")
+        except Exception as e:
+            logging.error(f"Error reading anomaly log file: {e}")
+        
+        return log_entries[:n] # Return up to N entries (in case more partial entries were gathered)
 
 
     def analyze_image(self, image_np_array):
